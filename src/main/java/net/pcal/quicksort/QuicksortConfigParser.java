@@ -60,7 +60,7 @@ class QuicksortConfigParser {
         Collection<Collection<String>> sortingGroups
     ) {
         return new QuicksortChestConfig(
-            new Identifier(requireNonNull(baseBlockId, "baseBlockId is required")),
+            Identifier.of(requireNonNull(baseBlockId, "baseBlockId is required")),
             requireNonNull(range != null ? range : dflt == null ? null : dflt.range(),
                 "range is required"),
             requireNonNull(cooldownTicks != null ? cooldownTicks : dflt == null ? null : dflt.cooldownTicks(),
@@ -104,13 +104,13 @@ class QuicksortConfigParser {
             );
         }
         return new QuicksortChestConfig.SortingGroupItem.Tag(
-            TagKey.of(RegistryKeys.ITEM, new Identifier(s))
+            TagKey.of(RegistryKeys.ITEM, Identifier.of(s))
         );
     }
 
     private static Set<Identifier> toIdentifierSet(Collection<String> nbtMatchEnabledIds) {
         final Set<Identifier> set = new HashSet<>();
-        for (String id : nbtMatchEnabledIds) set.add(new Identifier(id));
+        for (String id : nbtMatchEnabledIds) set.add(Identifier.of(id));
         return set;
     }
 

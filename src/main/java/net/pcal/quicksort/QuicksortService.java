@@ -415,10 +415,10 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
             if (left.isEmpty() && right.isEmpty()) {
                 return true;
             } else if (!left.isEmpty() && !right.isEmpty()) {
-                if (left.getNbt() == null && right.getNbt() != null) {
+                if (left.getItem() == null && right.getItem() != null) {
                     return false;
                 } else {
-                    return left.getNbt() == null || left.getNbt().equals(right.getNbt());
+                    return left.getItem() == null || left.getItem().equals(right.getItem());
                 }
             } else {
                 return false;

@@ -37,12 +37,6 @@ public class GhostItemEntity extends ItemEntity {
     /**
      * I don't think this actually does anything.
      */
-    @Override
-    protected void checkBlockCollision() {}
-
-    /**
-     * I don't think this actually does anything.
-     */
     public boolean isInsideWall() { return false; }
 
     /**
