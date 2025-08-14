@@ -1,6 +1,8 @@
 package net.pcal.quicksort;
 
 import com.google.gson.Gson;
+import net.minecraft.registry.RegistryKeys;
+import net.minecraft.registry.tag.TagKey;
 import net.minecraft.util.Identifier;
 import net.pcal.quicksort.QuicksortConfig.QuicksortChestConfig;
 import org.apache.logging.log4j.Level;
@@ -10,12 +12,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -29,14 +27,18 @@ class QuicksortConfigParser {
         final QuicksortConfigGson configGson = gson.fromJson(rawJson, QuicksortConfigGson.class);
         for (QuicksortChestConfigGson chestGson : configGson.quicksortChests) {
             chests.add(defaultChestConfig = createWithDefaults(defaultChestConfig,
-                    chestGson.baseBlockId,
-                    chestGson.range,
-                    chestGson.cooldownTicks,
-                    chestGson.animationTicks,
-                    chestGson.soundVolume,
-                    chestGson.soundPitch,
-                    chestGson.nbtMatchEnabledIds,
-                    chestGson.targetContainerIds));
+                chestGson.baseBlockId,
+                chestGson.range,
+                chestGson.cooldownTicks,
+                chestGson.animationTicks,
+                chestGson.soundVolume,
+                chestGson.soundPitch,
+                chestGson.nbtMatchEnabledIds,
+                chestGson.targetContainerIds,
+                chestGson.sortingGroups != null
+                    ? new ArrayList<>(chestGson.sortingGroups)
+                    : new ArrayList<>()
+            ));
         }
         // adjust logging to configured level
         final String configuredLevel = configGson.logLevel;
@@ -46,31 +48,63 @@ class QuicksortConfigParser {
     }
 
     static QuicksortChestConfig createWithDefaults(
-            QuicksortChestConfig dflt,
-            String baseBlockId,
-            Integer range,
-            Integer cooldownTicks,
-            Integer animationTicks,
-            Float soundVolume,
-            Float soundPitch,
-            Collection<String> nbtMatchEnabledIds,
-            Collection<String> targetContainerIds) {
+        QuicksortChestConfig dflt,
+        String baseBlockId,
+        Integer range,
+        Integer cooldownTicks,
+        Integer animationTicks,
+        Float soundVolume,
+        Float soundPitch,
+        Collection<String> nbtMatchEnabledIds,
+        Collection<String> targetContainerIds,
+        Collection<Collection<String>> sortingGroups
+    ) {
         return new QuicksortChestConfig(
-                new Identifier(requireNonNull(baseBlockId, "baseBlockId is required")),
-                requireNonNull(range != null ? range : dflt == null ? null : dflt.range(),
-                        "range is required"),
-                requireNonNull(cooldownTicks != null ? cooldownTicks : dflt == null ? null : dflt.cooldownTicks(),
-                        "cooldownTicks is required"),
-                requireNonNull(animationTicks != null ? animationTicks : dflt == null ? null : dflt.animationTicks(),
-                        "animationTicks is required"),
-                requireNonNull(soundVolume != null ? soundVolume : dflt == null ? null : dflt.soundVolume(),
-                        "soundVolume is required"),
-                requireNonNull(soundPitch != null ? soundPitch : dflt == null ? null : dflt.soundPitch(),
-                        "soundPitch is required"),
-                requireNonNull(nbtMatchEnabledIds != null ? toIdentifierSet(nbtMatchEnabledIds) : dflt == null ? null : dflt.nbtMatchEnabledIds(),
-                        "nbtMatchEnabledIds"),
-                requireNonNull(targetContainerIds != null ? toIdentifierSet(targetContainerIds) : dflt == null ? null : dflt.targetContainerIds(),
-                        "targetContainerIds")
+            new Identifier(requireNonNull(baseBlockId, "baseBlockId is required")),
+            requireNonNull(range != null ? range : dflt == null ? null : dflt.range(),
+                "range is required"),
+            requireNonNull(cooldownTicks != null ? cooldownTicks : dflt == null ? null : dflt.cooldownTicks(),
+                "cooldownTicks is required"),
+            requireNonNull(animationTicks != null ? animationTicks : dflt == null ? null : dflt.animationTicks(),
+                "animationTicks is required"),
+            requireNonNull(soundVolume != null ? soundVolume : dflt == null ? null : dflt.soundVolume(),
+                "soundVolume is required"),
+            requireNonNull(soundPitch != null ? soundPitch : dflt == null ? null : dflt.soundPitch(),
+                "soundPitch is required"),
+            requireNonNull(nbtMatchEnabledIds != null ? toIdentifierSet(nbtMatchEnabledIds) : dflt == null ? null :
+                                                                                              dflt.nbtMatchEnabledIds(),
+                "nbtMatchEnabledIds"),
+            requireNonNull(targetContainerIds != null ? toIdentifierSet(targetContainerIds) : dflt == null ? null :
+                                                                                              dflt.targetContainerIds(),
+                "targetContainerIds"),
+            sortingGroups == null ? new HashSet<>() :
+            sortingGroups.stream()
+                .filter(Objects::nonNull)
+               .map(QuicksortConfigParser::toTags)
+               .collect(Collectors.toSet())
+        );
+    }
+
+    private static Set<QuicksortChestConfig.SortingGroupItem> toTags(final Collection<String> s) {
+        return s.stream()
+                .map(QuicksortConfigParser::toTag)
+                .collect(Collectors.toSet());
+    }
+
+    private static QuicksortChestConfig.SortingGroupItem toTag(final String s) {
+        if (s.contains(":")) {
+            final var split = s.split(":");
+            if (s.contains("*")) {
+                return new QuicksortChestConfig.SortingGroupItem.ItemIdWithWildcard(
+                    split[0], split[1]
+                );
+            }
+            return new QuicksortChestConfig.SortingGroupItem.ItemId(
+                Identifier.of(split[0], split[1])
+            );
+        }
+        return new QuicksortChestConfig.SortingGroupItem.Tag(
+            TagKey.of(RegistryKeys.ITEM, new Identifier(s))
         );
     }
 
@@ -110,5 +144,6 @@ class QuicksortConfigParser {
         Float soundPitch;
         List<String> nbtMatchEnabledIds;
         List<String> targetContainerIds;
+        List<List<String>> sortingGroups;
     }
 }

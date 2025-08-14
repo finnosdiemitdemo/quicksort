@@ -1,5 +1,7 @@
 package net.pcal.quicksort;
 
+import net.minecraft.item.Item;
+import net.minecraft.registry.tag.TagKey;
 import net.minecraft.util.Identifier;
 import org.apache.logging.log4j.Level;
 
@@ -19,8 +21,14 @@ public record QuicksortConfig(
             float soundVolume,
             float soundPitch,
             Set<Identifier> nbtMatchEnabledIds,
-            Set<Identifier> targetContainerIds
+            Set<Identifier> targetContainerIds,
+            Set<Set<SortingGroupItem>> sortingGroups
     ) {
+        public interface SortingGroupItem {
+            record Tag (TagKey<Item> tagKey) implements SortingGroupItem {}
+            record ItemId(Identifier identifier) implements SortingGroupItem {}
+            record ItemIdWithWildcard(String namespace, String path) implements SortingGroupItem {}
+        }
     }
 }
 

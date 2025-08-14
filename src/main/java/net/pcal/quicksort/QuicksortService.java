@@ -19,7 +19,6 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
@@ -27,13 +26,9 @@ import net.minecraft.world.dimension.DimensionType;
 import net.pcal.quicksort.QuicksortConfig.QuicksortChestConfig;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 import static net.minecraft.block.ChestBlock.getInventory;
@@ -85,7 +80,7 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
      * When a chest is closed, start a new job.  Called from the mixin.
      */
     public void onChestClosed(ChestBlockEntity e) {
-        final ServerWorld world = requireNonNull((ServerWorld)e.getWorld());
+        final ServerWorld world = requireNonNull((ServerWorld) e.getWorld());
         final QuicksortChestConfig chestConfig = getChestConfigFor(world, e.getPos());
         if (chestConfig != null) {
             final List<TargetContainer> visibles = getVisibleChestsNear(world, chestConfig, e, chestConfig.range());
@@ -253,7 +248,8 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
             for (TargetContainer visibleContainer : allVisibleContainers) {
                 final Inventory targetInventory = getInventoryFor(world, visibleContainer.blockPos());
                 if (targetInventory == null) continue;
-                if (isValidTarget(originStack, targetInventory, chestConfig.nbtMatchEnabledIds())) {
+                if (isValidTarget(originStack, targetInventory, chestConfig.nbtMatchEnabledIds(),
+                    chestConfig.sortingGroups())) {
                     targetContainers.add(visibleContainer);
                 }
             }
@@ -290,7 +286,8 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
                     this.targets.remove(candidateIndex); // target has probably been destroyed
                     continue;
                 }
-                final ItemStack itemStack2 = HopperBlockEntity.transfer((Inventory) null, targetInventory, copy, (Direction) null);
+                final ItemStack itemStack2 = HopperBlockEntity.transfer((Inventory) null, targetInventory, copy,
+                    null);
                 if (!itemStack2.isEmpty()) {
                     this.targets.remove(candidateIndex); // target is full
                     continue;
@@ -320,18 +317,22 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
                 if (entity instanceof ChestBlockEntity) { // this seems pretty unlikely but let's be careful
                     final BlockState blockState = world.getBlockState(blockPos);
                     final Block block = blockState.getBlock();
-                    return getInventory((ChestBlock)block, blockState, world, blockPos, true);
+                    return getInventory((ChestBlock) block, blockState, world, blockPos, true);
                 } else {
                     return inventory;
                 }
             }
             return null;
-         }
+        }
 
         /**
          * @return true if the given targetInventory can accept items from the given stack.
          */
-        private static boolean isValidTarget(ItemStack originStack, Inventory targetInventory, Collection<Identifier> nbtMatchEnabledIds) {
+        private static boolean isValidTarget(
+            ItemStack originStack, Inventory targetInventory,
+            Collection<Identifier> nbtMatchEnabledIds,
+            Set<Set<QuicksortChestConfig.SortingGroupItem>> sortingGroups
+        ) {
             requireNonNull(targetInventory, "inventory");
             requireNonNull(originStack, "item");
             Integer firstEmptySlot = null;
@@ -341,7 +342,7 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
                 if (targetStack.isEmpty()) {
                     if (hasMatchingItem) return true; // this one's empty and a match was found earlier. done.
                     if (firstEmptySlot == null) firstEmptySlot = slot; // else remember this empty slot
-                } else if (isMatch(originStack, targetStack, nbtMatchEnabledIds)) {
+                } else if (isMatch(originStack, targetStack, nbtMatchEnabledIds, sortingGroups)) {
                     if (firstEmptySlot != null) return true;
                     if (!isFull(targetStack)) return true;
                     hasMatchingItem = true;
@@ -350,10 +351,60 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
             return false;
         }
 
-        private static boolean isMatch(ItemStack first, ItemStack second, Collection<Identifier> nbtMatchEnabledIds) {
+        private static boolean isMatch(ItemStack first, ItemStack second, Collection<Identifier> nbtMatchEnabledIds,
+                                       Set<Set<QuicksortChestConfig.SortingGroupItem>> sortingGroups
+        ) {
+            final Optional<Set<QuicksortChestConfig.SortingGroupItem>> matchingTags = sortingGroups
+                .stream()
+                .filter(tagKeys -> tagKeys.stream()
+                                          .anyMatch(item -> checkSortingGroupItem(first, item)))
+                .findFirst();
+            if (matchingTags.isPresent() && matchingTags.get().stream()
+                                                        .anyMatch(item -> checkSortingGroupItem(second, item))) {
+                return true;
+            }
             return first.isOf(second.getItem()) &&
-                    (!nbtMatchEnabledIds.contains(Registries.ITEM.getId(first.getItem())) ||
-                            areNbtEqual(first, second));
+                (!nbtMatchEnabledIds.contains(Registries.ITEM.getId(first.getItem())) ||
+                    areNbtEqual(first, second));
+        }
+
+        private static boolean checkSortingGroupItem(final ItemStack itemStack,
+                                                     final QuicksortChestConfig.SortingGroupItem item) {
+            return switch (item) {
+                case QuicksortChestConfig.SortingGroupItem.Tag tag -> itemStack.isIn(tag.tagKey());
+                case QuicksortChestConfig.SortingGroupItem.ItemId itemId -> checkItemIdMatches(itemStack, itemId);
+                case QuicksortChestConfig.SortingGroupItem.ItemIdWithWildcard itemIdWithWildcard ->
+                    checkItemIdMatchesWithWildcard(itemStack, itemIdWithWildcard);
+                default -> throw new IllegalStateException("Unexpected value: " + item);
+            };
+        }
+
+        private static boolean checkItemIdMatches(final ItemStack itemStack,
+                                                  final QuicksortChestConfig.SortingGroupItem.ItemId itemId) {
+            return Registries.ITEM.getId(itemStack.getItem()).equals(itemId.identifier());
+        }
+
+
+        private static boolean checkItemIdMatchesWithWildcard(
+            final ItemStack itemStack,
+            final QuicksortChestConfig.SortingGroupItem.ItemIdWithWildcard itemId
+        ) {
+            final var itemStackId = Registries.ITEM.getId(itemStack.getItem());
+            return itemStackId.getNamespace().equals(itemId.namespace())
+                && itemStackId.getPath().matches(getItemIdRegex(itemId.path()));
+        }
+
+        private static String getItemIdRegex(final String itemId) {
+             var regex = Arrays.stream(itemId.split("\\*"))
+                                      .map(Pattern::quote)
+                                      .collect(Collectors.joining(".*"));
+            if (itemId.startsWith("*")) {
+                regex = ".*" + regex;
+            }
+            if (itemId.endsWith("*")) {
+                regex += ".*";
+            }
+            return regex;
         }
 
         private static boolean isFull(ItemStack stack) {
