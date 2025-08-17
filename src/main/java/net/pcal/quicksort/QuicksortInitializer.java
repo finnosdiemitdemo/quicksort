@@ -1,7 +1,15 @@
 package net.pcal.quicksort;
 
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.command.CommandRegistryAccess;
+import net.minecraft.command.PermissionLevelSource;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -32,6 +40,8 @@ public class QuicksortInitializer implements ModInitializer {
     public void onInitialize() {
         try {
             initialize();
+            ServerTickEvents.END_WORLD_TICK.register(QuicksortService.getInstance());
+            CommandRegistrationCallback.EVENT.register(this::registerCommands);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
@@ -39,6 +49,25 @@ public class QuicksortInitializer implements ModInitializer {
 
     // ===================================================================================
     // Private
+
+    private void registerCommands(final CommandDispatcher<ServerCommandSource> dispatcher,
+                                  final CommandRegistryAccess registryAccess,
+                                  final CommandManager.RegistrationEnvironment registrationEnvironment) {
+        dispatcher.register(LiteralArgumentBuilder.<ServerCommandSource>literal("quicksort")
+            .then(LiteralArgumentBuilder.<ServerCommandSource>literal("reload")
+                .requires(ServerCommandSource::hasElevatedPermissions)
+                .executes(this::reinitialize)));
+    }
+
+    private int reinitialize(final CommandContext<ServerCommandSource> context) {
+        QuicksortService.getInstance().resetConfig();
+        try {
+            initialize();
+        } catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
+        return 1;
+    }
 
     private void initialize() throws IOException {
         Logger logger = LogManager.getLogger(LOGGER_NAME);
@@ -73,7 +102,6 @@ public class QuicksortInitializer implements ModInitializer {
             logger.info(LOG_PREFIX + "LogLevel set to " + config.logLevel());
         }
         QuicksortService.getInstance().init(config, logger);
-        ServerTickEvents.END_WORLD_TICK.register(QuicksortService.getInstance());
         logger.info(LOG_PREFIX + "Initialized");
     }
 }

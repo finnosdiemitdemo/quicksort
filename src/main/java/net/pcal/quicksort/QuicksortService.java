@@ -63,6 +63,11 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
     // ===================================================================================
     // Package methods
 
+    void resetConfig() {
+        this.logger = null;
+        this.config = null;
+    }
+
     void init(QuicksortConfig config, Logger logger) {
         if (this.logger != null) throw new IllegalStateException();
         this.logger = requireNonNull(logger);
@@ -129,6 +134,9 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
     }
 
     private QuicksortChestConfig getChestConfigFor(World world, BlockPos chestPos) {
+        if (this.config == null) {
+            return null;
+        }
         final Block baseBlock = world.getBlockState(chestPos.down()).getBlock();
         final Identifier baseBlockId = Registries.BLOCK.getId(baseBlock);
         return this.config.get(baseBlockId);
