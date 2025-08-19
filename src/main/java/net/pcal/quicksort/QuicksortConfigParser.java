@@ -37,7 +37,8 @@ class QuicksortConfigParser {
                 chestGson.targetContainerIds,
                 chestGson.sortingGroups != null
                     ? new ArrayList<>(chestGson.sortingGroups)
-                    : new ArrayList<>()
+                    : new ArrayList<>(),
+                chestGson.supportItemFrames
             ));
         }
         // adjust logging to configured level
@@ -57,7 +58,8 @@ class QuicksortConfigParser {
         Float soundPitch,
         Collection<String> nbtMatchEnabledIds,
         Collection<String> targetContainerIds,
-        Collection<Collection<String>> sortingGroups
+        Collection<Collection<String>> sortingGroups,
+        boolean supportItemFrames
     ) {
         return new QuicksortChestConfig(
             Identifier.of(requireNonNull(baseBlockId, "baseBlockId is required")),
@@ -81,7 +83,8 @@ class QuicksortConfigParser {
             sortingGroups.stream()
                 .filter(Objects::nonNull)
                .map(QuicksortConfigParser::toTags)
-               .collect(Collectors.toSet())
+               .collect(Collectors.toSet()),
+            supportItemFrames
         );
     }
 
@@ -145,5 +148,6 @@ class QuicksortConfigParser {
         List<String> nbtMatchEnabledIds;
         List<String> targetContainerIds;
         List<List<String>> sortingGroups;
+        boolean supportItemFrames;
     }
 }

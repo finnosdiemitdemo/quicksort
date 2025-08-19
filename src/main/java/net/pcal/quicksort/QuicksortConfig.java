@@ -22,7 +22,8 @@ public record QuicksortConfig(
             float soundPitch,
             Set<Identifier> nbtMatchEnabledIds,
             Set<Identifier> targetContainerIds,
-            Set<Set<SortingGroupItem>> sortingGroups
+            Set<Set<SortingGroupItem>> sortingGroups,
+            boolean supportItemFrames
     ) {
         public interface SortingGroupItem {
             record Tag (TagKey<Item> tagKey) implements SortingGroupItem {}

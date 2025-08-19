@@ -1,5 +1,6 @@
 package net.pcal.quicksort;
 
+import com.mojang.datafixers.types.Func;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -9,6 +10,7 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.ChestBlockEntity;
 import net.minecraft.block.entity.HopperBlockEntity;
 import net.minecraft.block.entity.LootableContainerBlockEntity;
+import net.minecraft.entity.decoration.ItemFrameEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -19,6 +21,7 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
@@ -27,6 +30,8 @@ import net.pcal.quicksort.QuicksortConfig.QuicksortChestConfig;
 import org.apache.logging.log4j.Logger;
 
 import java.util.*;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -256,8 +261,10 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
             for (TargetContainer visibleContainer : allVisibleContainers) {
                 final Inventory targetInventory = getInventoryFor(world, visibleContainer.blockPos());
                 if (targetInventory == null) continue;
-                if (isValidTarget(originStack, targetInventory, chestConfig.nbtMatchEnabledIds(),
-                    chestConfig.sortingGroups())) {
+                if (isValidInventory(originStack, targetInventory, chestConfig)
+                    || chestConfig.supportItemFrames()
+                    && isValidChestWithItemFrame(world, visibleContainer.blockPos, originStack, chestConfig)
+                ) {
                     targetContainers.add(visibleContainer);
                 }
             }
@@ -336,10 +343,9 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
         /**
          * @return true if the given targetInventory can accept items from the given stack.
          */
-        private static boolean isValidTarget(
-            ItemStack originStack, Inventory targetInventory,
-            Collection<Identifier> nbtMatchEnabledIds,
-            Set<Set<QuicksortChestConfig.SortingGroupItem>> sortingGroups
+        private static boolean isValidInventory(final ItemStack originStack,
+            final Inventory targetInventory,
+            final QuicksortChestConfig chestConfig
         ) {
             requireNonNull(targetInventory, "inventory");
             requireNonNull(originStack, "item");
@@ -350,7 +356,7 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
                 if (targetStack.isEmpty()) {
                     if (hasMatchingItem) return true; // this one's empty and a match was found earlier. done.
                     if (firstEmptySlot == null) firstEmptySlot = slot; // else remember this empty slot
-                } else if (isMatch(originStack, targetStack, nbtMatchEnabledIds, sortingGroups)) {
+                } else if (isMatch(originStack, targetStack, chestConfig)) {
                     if (firstEmptySlot != null) return true;
                     if (!isFull(targetStack)) return true;
                     hasMatchingItem = true;
@@ -359,10 +365,35 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
             return false;
         }
 
-        private static boolean isMatch(ItemStack first, ItemStack second, Collection<Identifier> nbtMatchEnabledIds,
-                                       Set<Set<QuicksortChestConfig.SortingGroupItem>> sortingGroups
-        ) {
-            final Optional<Set<QuicksortChestConfig.SortingGroupItem>> matchingTags = sortingGroups
+        private static boolean isValidChestWithItemFrame(final ServerWorld world,
+                                                         final BlockPos chestPosition,
+                                                         final ItemStack originStack,
+                                                         final QuicksortChestConfig chestConfig) {
+            final Function<BlockPos, Optional<ItemFrameEntity>> getOptItemFrame = (pos) -> {
+                final var entities = world.getEntitiesByClass(
+                    ItemFrameEntity.class,
+                    new Box(pos),
+                    itemFrameEntity -> true
+                );
+                return entities == null || entities.isEmpty()
+                    ? Optional.empty()
+                    : Optional.of(entities.getFirst());
+            };
+            final var optItemFrame = getOptItemFrame.apply(chestPosition.north())
+                                          .or(() -> getOptItemFrame.apply((chestPosition.south())))
+                                          .or(() -> getOptItemFrame.apply((chestPosition.west())))
+                                          .or(() -> getOptItemFrame.apply((chestPosition.east())))
+                                          .or(() -> getOptItemFrame.apply((chestPosition.up())))
+                                          .or(() -> getOptItemFrame.apply((chestPosition.down())));
+            if (optItemFrame.isEmpty()) {
+                return false;
+            }
+            final var heldItemStack = optItemFrame.get().getHeldItemStack();
+            return heldItemStack != null && isMatch(originStack, heldItemStack, chestConfig);
+        }
+
+        private static boolean isMatch(ItemStack first, ItemStack second, QuicksortChestConfig chestConfig) {
+            final Optional<Set<QuicksortChestConfig.SortingGroupItem>> matchingTags = chestConfig.sortingGroups()
                 .stream()
                 .filter(tagKeys -> tagKeys.stream()
                                           .anyMatch(item -> checkSortingGroupItem(first, item)))
@@ -372,7 +403,7 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
                 return true;
             }
             return first.isOf(second.getItem()) &&
-                (!nbtMatchEnabledIds.contains(Registries.ITEM.getId(first.getItem())) ||
+                (!chestConfig.nbtMatchEnabledIds().contains(Registries.ITEM.getId(first.getItem())) ||
                     areNbtEqual(first, second));
         }
 
@@ -391,7 +422,6 @@ public class QuicksortService implements ServerTickEvents.EndWorldTick {
                                                   final QuicksortChestConfig.SortingGroupItem.ItemId itemId) {
             return Registries.ITEM.getId(itemStack.getItem()).equals(itemId.identifier());
         }
-
 
         private static boolean checkItemIdMatchesWithWildcard(
             final ItemStack itemStack,
